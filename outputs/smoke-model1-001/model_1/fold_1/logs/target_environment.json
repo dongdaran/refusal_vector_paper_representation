@@ -1,0 +1,12 @@
+{
+  "python": "3.11.13",
+  "platform": "Linux-6.8.0-134-generic-x86_64-with-glibc2.39",
+  "torch": "2.14.1+cu130",
+  "transformers": "4.57.6",
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+  "dtype": "bfloat16",
+  "device": "cuda",
+  "cuda": "13.0",
+  "gpu": "NVIDIA A40"
+}
