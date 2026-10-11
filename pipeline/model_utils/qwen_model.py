@@ -153,3 +153,73 @@ class QwenModel(ModelBase):
     
     def _get_act_add_mod_fn(self, direction: Float[Tensor, "d_model"], coeff, layer):
         return functools.partial(act_add_qwen_weights, direction=direction, coeff=coeff, layer=layer)
+
+
+def orthogonalize_qwen2_weights(model, direction):
+    model.model.embed_tokens.weight.data = get_orthogonalized_matrix(
+        model.model.embed_tokens.weight.data, direction)
+    for block in model.model.layers:
+        for projection in (block.self_attn.o_proj, block.mlp.down_proj):
+            projection.weight.data = get_orthogonalized_matrix(
+                projection.weight.data.T, direction).T
+
+
+def act_add_qwen2_weights(model, direction, coeff, layer):
+    projection = model.model.layers[layer - 1].mlp.down_proj
+    projection.bias = torch.nn.Parameter(
+        (coeff * direction).to(projection.weight))
+
+
+class Qwen2Model(QwenModel):
+    """Qwen2/Qwen2.5 adapter; keep the original Qwen adapter unchanged."""
+
+    def __init__(self, model_name_or_path, revision=None):
+        self.revision = revision
+        super().__init__(model_name_or_path)
+
+    def _load_model(self, model_path, dtype=None):
+        if dtype is None:
+            if torch.cuda.is_available():
+                dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            else:
+                dtype = torch.float32
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path, revision=self.revision, torch_dtype=dtype,
+            device_map="auto", attn_implementation="eager",
+        ).eval()
+        if model.config.model_type != "qwen2":
+            raise ValueError(f"Expected qwen2 architecture, got {model.config.model_type}")
+        model.requires_grad_(False)
+        return model
+
+    def _load_tokenizer(self, model_path):
+        tokenizer = AutoTokenizer.from_pretrained(model_path, revision=self.revision)
+        tokenizer.padding_side = "left"
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        return tokenizer
+
+    def _get_tokenize_instructions_fn(self):
+        return functools.partial(
+            tokenize_instructions_qwen_chat, tokenizer=self.tokenizer,
+            system=SAMPLE_SYSTEM_PROMPT, include_trailing_whitespace=True)
+
+    def _get_eoi_toks(self):
+        return self.tokenizer.encode(
+            QWEN_CHAT_TEMPLATE.split("{instruction}")[-1], add_special_tokens=False)
+
+    def _get_refusal_toks(self):
+        return [self.tokenizer.encode(text, add_special_tokens=False)[0]
+                for text in ("I", "As")]
+
+    def _get_model_block_modules(self):
+        return self.model.model.layers
+
+    def _get_attn_modules(self):
+        return torch.nn.ModuleList([block.self_attn for block in self.model_block_modules])
+
+    def _get_orthogonalization_mod_fn(self, direction):
+        return functools.partial(orthogonalize_qwen2_weights, direction=direction)
+
+    def _get_act_add_mod_fn(self, direction, coeff, layer):
+        return functools.partial(act_add_qwen2_weights, direction=direction, coeff=coeff, layer=layer)

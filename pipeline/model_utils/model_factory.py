@@ -1,6 +1,12 @@
 from pipeline.model_utils.model_base import ModelBase
 
-def construct_model_base(model_path: str) -> ModelBase:
+def construct_model_base(model_path: str, revision: str = None) -> ModelBase:
+
+    if 'qwen2' in model_path.lower():
+        from pipeline.model_utils.qwen_model import Qwen2Model
+        return Qwen2Model(model_path, revision=revision)
+    if revision is not None:
+        raise ValueError("revision is currently supported only by the Qwen2/Qwen2.5 adapter")
 
     if 'qwen' in model_path.lower():
         from pipeline.model_utils.qwen_model import QwenModel
